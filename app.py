@@ -266,7 +266,6 @@ elif submit and user_input != "":
                                file_name=filename)
 
         except Exception as e:
-            st.write(e)
             st.error("Oops, something went wrong! Try again or use a different ticker")
 
 
