@@ -6,3 +6,4 @@ Pillow==9.3.0
 requests
 plotly
 yfinance
+kaleido
