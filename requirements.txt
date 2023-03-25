@@ -1,9 +1,9 @@
-streamlit==1.15.2
+streamlit
 pandas==1.5.0
 python-pptx~=0.6.21
 openpyxl
 Pillow==9.3.0
 requests
 plotly
-git+https://github.com/ranaroussi/yfinance.git@dev
+yahooquery
 kaleido
