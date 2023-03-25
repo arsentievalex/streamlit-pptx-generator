@@ -1,5 +1,5 @@
 import streamlit as st
-import yfinance as yf
+from yahooquery import Ticker
 import pandas as pd
 import plotly.express as px
 from pptx import Presentation
@@ -70,9 +70,9 @@ def replace_text(replacements, shapes):
 
 def get_stock(ticker, period, interval):
     hist = ticker.history(period=period, interval=interval)
-    stock_df = pd.DataFrame(hist).reset_index()
+    hist = hist.reset_index()
 
-    return stock_df
+    return hist
 
 
 def plot_graph(df, x, y, title):
@@ -85,9 +85,9 @@ def plot_graph(df, x, y, title):
 
 
 def get_financials(df, col_name, metric_name):
-    metric = df.loc[col_name]
+    metric = df.loc[:, ['asOfDate', col_name]]
     metric_df = pd.DataFrame(metric).reset_index()
-    metric_df.columns = ['Year', metric_name]
+    metric_df.columns = ['Symbol', 'Year', metric_name]
 
     return metric_df
 
@@ -97,6 +97,7 @@ def get_financials(df, col_name, metric_name):
 st.set_page_config(page_icon="🚀", page_title="PowerPoint Generator")
 
 path = os.path.dirname(__file__)
+
 today = date.today()
 
 
@@ -106,13 +107,13 @@ st.subheader('This web app uses data from Yahoo Finance to create PowerPoint sli
 
 user_input = st.text_input(label='Enter company ticker. For example: AAPL for Apple or TSLA for Tesla')
 
-options = ['Stock Price', 'Revenue', 'Cashflow', 'EBITDA']
+options = ['Stock Price', 'Revenue', 'Market Cap', 'EBITDA']
 selected_options = st.multiselect(label='Select metric(s)', options=options)
 
 submit = st.button(label='Generate PowerPoint slides')
 
 # trim user input string
-user_input = str(user_input).strip()
+user_input = str(user_input.lower()).strip()
 
 if submit and user_input == "":
     st.warning("Please enter company ticker!")
@@ -130,18 +131,18 @@ elif submit and user_input != "":
             left = Inches(2.5)
             top = Inches(1)
 
-            ticker = yf.Ticker(user_input)
+            ticker = Ticker(user_input)
 
             # get stock info
-            name = ticker.info['shortName']
-            logo_url = ticker.info['logo_url']
-            sector = ticker.info['sector']
-            industry = ticker.info['industry']
-            employees = ticker.info['fullTimeEmployees']
-            country = ticker.info['country']
-            city = ticker.info['city']
-            website = ticker.info['website']
-            summary = ticker.info['longBusinessSummary']
+            name = ticker.price[user_input]['shortName']
+            sector = ticker.summary_profile[user_input]['sector']
+            industry = ticker.summary_profile[user_input]['industry']
+            employees = ticker.summary_profile[user_input]['fullTimeEmployees']
+            country = ticker.summary_profile[user_input]['country']
+            city = ticker.summary_profile[user_input]['city']
+            website = ticker.summary_profile[user_input]['website']
+            summary = ticker.summary_profile[user_input]['longBusinessSummary']
+            logo_url = 'https://logo.clearbit.com/' + website
 
             # declare pptx variables
             first_slide = prs.slides[0]
@@ -168,35 +169,39 @@ elif submit and user_input != "":
                 '{i}': industry,
                 '{co}': country,
                 '{ci}': city,
-                '{ee}': employees,
+                '{ee}': "{:,}".format(employees),
                 '{w}': website,
                 '{summary}': summary
             }
+
 
             # run the function to replace placeholders with values
             replace_text(replaces_1, shapes_1)
             replace_text(replaces_2, shapes_2)
 
-            # create logo image object
-            logo = resize_image(logo_url)
-            logo.save('logo.png')
-            logo_im = path + '//' + 'logo.png'
+            # check if a logo ulr returns code 200 (working link)
+            if requests.get(logo_url).status_code == 200:
+                #create logo image object
+                logo = resize_image(logo_url)
+                logo.save('logo.png')
+                logo_im = 'logo.png'
 
-            # add plots
-            add_image(prs.slides[1], image=logo_im, left=Inches(1.2), width=Inches(2), top=Inches(0.5))
-            os.remove('logo.png')
+                # add logo to the slide
+                add_image(prs.slides[1], image=logo_im, left=Inches(1.2), width=Inches(2), top=Inches(0.5))
+                os.remove('logo.png')
 
 
             if len(selected_options) > 0:
-                income_df = pd.DataFrame(ticker.income_stmt)
-                cashflow_df = pd.DataFrame(ticker.cashflow)
+                income_df = ticker.income_statement()
+                valuation_df = ticker.valuation_measures
 
             if 'Stock Price' in selected_options:
                 stock_df = get_stock(ticker=ticker, period='5y', interval='1mo')
-                stock_fig = plot_graph(df=stock_df, x='Date', y='Open', title='Stock Price USD')
+
+                stock_fig = plot_graph(df=stock_df, x='date', y='open', title='Stock Price USD')
 
                 stock_fig.write_image("stock.png")
-                stock_im = path + '//' + 'stock.png'
+                stock_im = 'stock.png'
 
                 add_image(prs.slides[2], image=stock_im, left=left, width=width, top=top)
                 os.remove('stock.png')
@@ -204,35 +209,35 @@ elif submit and user_input != "":
                 index_to_drop.append(2)
 
             if "Revenue" in selected_options:
-                rev_df = get_financials(df=income_df,col_name='Total Revenue', metric_name='Total Revenue')
+                rev_df = get_financials(df=income_df, col_name='TotalRevenue', metric_name='Total Revenue')
                 rev_fig = plot_graph(df=rev_df, x='Year', y='Total Revenue', title='Total Revenue USD')
 
                 rev_fig.write_image("rev.png")
-                rev_im = path + '//' + 'rev.png'
+                rev_im = 'rev.png'
 
                 add_image(prs.slides[3], image=rev_im, left=left, width=width, top=top)
                 os.remove('rev.png')
             else:
                 index_to_drop.append(3)
 
-            if "Cashflow" in selected_options:
-                cash_df = get_financials(df=cashflow_df, col_name='Operating Cash Flow', metric_name='Operating Cash Flow')
-                cashflow_fig = plot_graph(df=cash_df, x='Year', y='Operating Cash Flow', title='Operating Cash Flow USD')
+            if "Market Cap" in selected_options:
+                marketcap_df = get_financials(df=valuation_df, col_name='MarketCap', metric_name='Market Cap')
+                marketcap_fig = plot_graph(df=marketcap_df, x='Year', y='Market Cap', title='Market Cap USD')
 
-                cashflow_fig.write_image("cashflow.png")
-                cashflow_im = path + '//' + 'cashflow.png'
+                marketcap_fig.write_image("marketcap.png")
+                marketcap_im = 'marketcap.png'
 
-                add_image(prs.slides[4], image=cashflow_im, left=left, width=width, top=top)
-                os.remove('cashflow.png')
+                add_image(prs.slides[4], image=marketcap_im, left=left, width=width, top=top)
+                os.remove('marketcap.png')
             else:
                 index_to_drop.append(4)
 
             if "EBITDA" in selected_options:
-                ebitda_df = get_financials(df=income_df, col_name='Normalized EBITDA', metric_name='EBITDA')
+                ebitda_df = get_financials(df=income_df, col_name='NormalizedEBITDA', metric_name='EBITDA')
                 ebitda_fig = plot_graph(df=ebitda_df, x='Year', y='EBITDA', title='EBITDA USD')
 
                 ebitda_fig.write_image("ebitda.png")
-                ebitda_im = path + '//' + 'ebitda.png'
+                ebitda_im = 'ebitda.png'
 
                 add_image(prs.slides[5], image=ebitda_im, left=left, width=width, top=top)
                 os.remove('ebitda.png')
